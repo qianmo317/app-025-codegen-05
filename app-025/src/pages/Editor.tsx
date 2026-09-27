@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import type { Plan, Item } from '../core/types';
 import Canvas, { occlusionWarnings } from '../components/Canvas';
+import TankMigrateDialog from '../components/TankMigrateDialog';
 import { updatePlan } from '../state/plans';
 import { PLANTS, HARDSCAPES, SUBSTRATES } from '../data/db';
 import { Link } from '../router';
@@ -14,7 +15,31 @@ import {
 
 export default function Editor({ plan }: { plan: Plan }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // 换缸迁移：弹窗打开期间用快照预览，确认前不写 store（取消即整份退回）
+  const [migrating, setMigrating] = useState(false);
+  const [snapshot, setSnapshot] = useState<Plan | null>(null);
   const selected = plan.items.find((i) => i.id === selectedId) ?? null;
+
+  function openMigrate() {
+    setSnapshot(structuredClone(plan));
+    setMigrating(true);
+  }
+
+  function confirmMigrate(next: { l: number; w: number; h: number; items: Item[] }) {
+    if (!snapshot) return;
+    updatePlan(plan.id, {
+      tank: { ...snapshot.tank, l: next.l, w: next.w, h: next.h },
+      items: next.items,
+    });
+    setMigrating(false);
+    setSnapshot(null);
+    setSelectedId(null);
+  }
+
+  function cancelMigrate() {
+    setMigrating(false);
+    setSnapshot(null);
+  }
 
   const vol = useMemo(() => {
     const gross = grossVolumeL(plan.tank);
@@ -151,7 +176,15 @@ export default function Editor({ plan }: { plan: Plan }) {
 
         {/* 右：参数面板 */}
         <aside className="panel" data-testid="params-panel">
-          <h3>缸体</h3>
+          <div className="row" style={{ justifyContent: 'space-between' }}>
+            <h3 style={{ margin: 0 }}>缸体</h3>
+            <button className="btn sm" data-testid="open-migrate" onClick={openMigrate}>
+              换缸迁移布局
+            </button>
+          </div>
+          <p className="muted small" style={{ margin: '6px 0' }}>
+            换缸后用此功能按比例整体搬移旧布局；直接改尺寸不会移动已摆好的素材。
+          </p>
           <div className="grid2">
             <NumField label="长 cm" value={plan.tank.l} onChange={(v) => patchTank({ l: v })} testid="tank-l" />
             <NumField label="宽 cm" value={plan.tank.w} onChange={(v) => patchTank({ w: v })} testid="tank-w" />
@@ -254,6 +287,10 @@ export default function Editor({ plan }: { plan: Plan }) {
           )}
         </aside>
       </div>
+
+      {migrating && snapshot && (
+        <TankMigrateDialog plan={snapshot} onConfirm={confirmMigrate} onCancel={cancelMigrate} />
+      )}
     </div>
   );
 }

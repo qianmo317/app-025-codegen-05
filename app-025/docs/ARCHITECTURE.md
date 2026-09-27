@@ -16,7 +16,7 @@
 │  #/ /plan/:id[/water|/stocking|/bom] /library
 ├─────────────────────────────────────────────────────────────┤
 │  核心计算层 core/（纯函数，"后端"逻辑，全部可单测）
-│  volume.ts · water.ts · equipment.ts · compatibility.ts · bom.ts · types.ts
+│  volume.ts · water.ts · equipment.ts · compatibility.ts · relayout.ts · bom.ts · types.ts
 ├─────────────────────────────────────────────────────────────┤
 │  状态层 state/plans.ts（集中式 store，观察者模式）
 │  方案 CRUD + localStorage 持久化（键 aquaplans.v1）
@@ -50,6 +50,7 @@ App.tsx: useSyncExternalStore(subscribePlans, getPlans) ──▶ 触发重渲�
 - 组件通过 `useSyncExternalStore` 订阅（`App.tsx` 统一订阅一次），页面内部直接调用 store 的公开 API 修改数据，避免层层 props 传递。
 - 读路径：`getPlan(id)` 按需读取；写路径：所有写操作都会刷新 `updatedAt` 并同步持久化。
 - 持久化格式即 `Plan` 数组的 JSON 序列化，无 schema 迁移（v1 键名预留升级空间）。
+- **换缸迁移的事务式交互**：`TankMigrateDialog` 打开时对 plan 做深拷贝快照，弹窗内全部操作只驱动本地 state（`relayoutItems` 纯函数实时算预览），store 零写入；点确认才调用一次 `updatePlan({ tank, items })`，取消/关闭直接丢弃快照——天然满足「确认才写入、取消整份退回」，无需回滚逻辑。
 
 ## 3. 路由设计（src/router.tsx）
 
@@ -88,6 +89,7 @@ App.tsx: useSyncExternalStore(subscribePlans, getPlans) ──▶ 触发重渲�
 | water.ts | `weeklyWaterChangePct` `roMixForGh` `saltForGh` `co2FromPhKh` `targetPhForCo2` `co2BubblesPerSec` `phKhCo2Table` `co2Lookup` | RO 兑水与矿物盐互斥输出；CO₂ ≈ 3×KH×10^(7−pH)；泡/秒估算强制 `estimated` 标注 |
 | equipment.ts | `classifyLightByLumen` `recommendLumens` `recommendWatts` `checkLight` `filterFlowLph` `heaterWatts` `suggestGlassMm` `equipmentSummary` | 光照三档判定 + 水草需求交叉校验；过滤 5~8 倍；加热 W = L×ΔT×0.12 |
 | compatibility.ts | `rangesOverlap` `checkPair` `checkSchooling` `checkTankSize` `checkDensity` `checkStocking` | 逐对 5 条规则 + 附加规则，输出 `StockingIssue[]`（severity/conflict·warning·info + code + message） |
+| relayout.ts | `scaleFactors` `halfExtents` `relayoutItems` `reasonLabel` | 换缸三模式比例（长度/宽度/面积等比）；位置与尺寸统一缩放后，按旋转包围盒收回越界素材；层次/旋转/排水系数保留 |
 | bom.ts | `buildBom` | 汇总底砂/水草/硬景观/生物/设备行 + 养护参数卡 |
 
 可配参数集中以常量或数据表存在（`GH_SALTS`、`LIGHT_LUMEN_PER_M2`、`WL_RANGE`、底砂密度表、硬景观排水系数），便于调参与测试边界。

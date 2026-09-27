@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import App from '../src/App';
-import { upsertPlan, newPlan, deletePlan, getPlans } from '../src/state/plans';
+import { upsertPlan, newPlan, deletePlan, getPlans, getPlan } from '../src/state/plans';
 
 /** 组件层测试：模拟真实用户从列表 → 编辑 → 水质 → 生物 → 清单 的点击路径 */
 
@@ -103,6 +103,159 @@ describe('造景编辑器', () => {
     render(<App />);
     expect(await screen.findByTestId('occlusion-warnings')).toBeInTheDocument();
     expect(screen.getByTestId('occlusion-warnings').textContent).toContain('遮挡');
+  });
+});
+
+describe('换缸迁移布局', () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  function seededPlan() {
+    const plan = newPlan('换缸测试');
+    upsertPlan({
+      ...plan,
+      tank: { ...plan.tank, l: 60, w: 40 },
+      items: [
+        { id: 'rock1', kind: 'hardscape', name: '青龙石', x: 30, y: 20, scaleCm: 20, rotDeg: 15, displacement: 0.55, shape: 'rock' },
+        { id: 'pl1', kind: 'plant', name: '红宫廷', x: 15, y: 10, scaleCm: 10, rotDeg: 0, layer: 'back', lightNeed: 'high', growth: 'fast', qty: 12 },
+      ],
+    });
+    window.location.hash = `/plan/${plan.id}`;
+    return plan;
+  }
+
+  async function openDialog() {
+    render(<App />);
+    await screen.findByTestId('editor');
+    await userEvent.click(screen.getByTestId('open-migrate'));
+    return screen.findByTestId('migrate-dialog');
+  }
+
+  it('打开弹窗同时显示新旧两张平面预览图', async () => {
+    seededPlan();
+    await openDialog();
+    expect(screen.getByTestId('migrate-preview-old')).toBeInTheDocument();
+    expect(screen.getByTestId('migrate-preview-new')).toBeInTheDocument();
+    // 两张图都画出素材
+    expect(document.querySelector('[data-testid="migrate-preview-old"] [data-testid="preview-item-rock1"]')).toBeTruthy();
+    expect(document.querySelector('[data-testid="migrate-preview-new"] [data-testid="preview-item-rock1"]')).toBeTruthy();
+  });
+
+  it('换到细长缸（长度×2 宽不变），宽度方向越界的素材被收回并单独列出', async () => {
+    const plan = seededPlan();
+    await openDialog();
+
+    const lInput = screen.getByTestId('migrate-l') as HTMLInputElement;
+    await userEvent.clear(lInput);
+    await userEvent.type(lInput, '120');
+    // 默认按长度为准：石头 20→40cm，y: 20→40 超出中心允许范围（贴宽边）→ 收回
+
+    const list = await screen.findByTestId('migrate-adjusted');
+    expect(list.textContent).toContain('青龙石');
+    expect(list.textContent).toContain('宽度方向越界');
+    // 红圈高亮存在
+    const newSvg = screen.getByTestId('migrate-preview-new');
+    expect(newSvg.querySelectorAll('[stroke="#c0392b"]').length).toBeGreaterThan(0);
+    // 未确认前 store 不变
+    const before = getPlan(plan.id)!;
+    expect(before.tank.l).toBe(60);
+    expect(before.items[0].x).toBe(30);
+  });
+
+  it('确认迁移后才写入新缸尺寸与换算后的布局，旋转/层次/排水系数保留', async () => {
+    const plan = seededPlan();
+    await openDialog();
+
+    const lInput = screen.getByTestId('migrate-l') as HTMLInputElement;
+    await userEvent.clear(lInput);
+    await userEvent.type(lInput, '120');
+    await userEvent.click(screen.getByTestId('migrate-confirm'));
+
+    // 弹窗关闭
+    expect(screen.queryByTestId('migrate-dialog')).toBeNull();
+    const after = getPlan(plan.id)!;
+    expect(after.tank.l).toBe(120);
+    expect(after.tank.w).toBe(40);
+    // 按长度 ×2：红宫廷 (15,10,scale10) → (30,20,20)，在缸内不收回
+    const pl = after.items.find((i) => i.id === 'pl1')!;
+    expect(pl.x).toBe(30);
+    expect(pl.y).toBe(20);
+    expect(pl.scaleCm).toBe(20);
+    expect(pl.layer).toBe('back');
+    // 石头保留旋转角与排水系数
+    const rock = after.items.find((i) => i.id === 'rock1')!;
+    expect(rock.rotDeg).toBe(15);
+    expect(rock.displacement).toBe(0.55);
+    expect(rock.shape).toBe('rock');
+    // 收回后中心 y + 包围盒半高 ≤ 40
+    expect(rock.y + (rock.scaleCm * 0.7) / 2).toBeLessThanOrEqual(40 + 1e-6);
+  });
+
+  it('取消迁移：弹窗关闭，缸与布局整份退回（不改 store）', async () => {
+    const plan = seededPlan();
+    await openDialog();
+
+    const lInput = screen.getByTestId('migrate-l') as HTMLInputElement;
+    await userEvent.clear(lInput);
+    await userEvent.type(lInput, '120');
+    // 预览里已经出现改动列表
+    expect(await screen.findByTestId('migrate-adjusted')).toBeInTheDocument();
+    await userEvent.click(screen.getByTestId('migrate-cancel'));
+
+    expect(screen.queryByTestId('migrate-dialog')).toBeNull();
+    const after = getPlan(plan.id)!;
+    expect(after.tank.l).toBe(60);
+    expect(after.items[0]).toMatchObject({ x: 30, y: 20, scaleCm: 20 });
+  });
+
+  it('切换换算模式：按宽度为准（宽不变 → 系数1）时布局不缩放、无越界', async () => {
+    seededPlan();
+    await openDialog();
+
+    const lInput = screen.getByTestId('migrate-l') as HTMLInputElement;
+    await userEvent.clear(lInput);
+    await userEvent.type(lInput, '120');
+    await userEvent.click(screen.getByTestId('migrate-mode-width'));
+
+    expect(screen.queryByTestId('migrate-adjusted')).toBeNull();
+    expect(screen.getByTestId('migrate-no-adjust')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByTestId('migrate-confirm'));
+    const after = getPlans()[0];
+    // 系数 1：坐标与尺寸保持原值
+    const rock = after.items.find((i: { id: string }) => i.id === 'rock1')!;
+    expect(rock.x).toBe(30);
+    expect(rock.scaleCm).toBe(20);
+  });
+
+  it('面积等比模式系数为 √面积比，确认后生效', async () => {
+    seededPlan();
+    await openDialog();
+
+    const lInput = screen.getByTestId('migrate-l') as HTMLInputElement;
+    await userEvent.clear(lInput);
+    await userEvent.type(lInput, '120'); // 120×40 / 60×40 = 2 → k=√2
+    await userEvent.click(screen.getByTestId('migrate-mode-area'));
+    await userEvent.click(screen.getByTestId('migrate-confirm'));
+
+    const after = getPlans()[0];
+    const pl = after.items.find((i: { id: string }) => i.id === 'pl1')!;
+    expect(pl.scaleCm).toBeCloseTo(10 * Math.sqrt(2), 1);
+    expect(pl.x).toBeCloseTo(15 * Math.sqrt(2), 1);
+  });
+
+  it('弹窗内只改预览不落库：✕ 关闭后缸尺寸整份退回', async () => {
+    const plan = seededPlan();
+    await openDialog();
+    const lInput = screen.getByTestId('migrate-l') as HTMLInputElement;
+    await userEvent.clear(lInput);
+    await userEvent.type(lInput, '90');
+    // 预览已经按 90 长重算，但未确认
+    expect(screen.getByTestId('migrate-ratios').textContent).toContain('90×40');
+    await userEvent.click(screen.getByTestId('migrate-close'));
+    expect(screen.queryByTestId('migrate-dialog')).toBeNull();
+    expect(getPlan(plan.id)!.tank.l).toBe(60);
   });
 });
 

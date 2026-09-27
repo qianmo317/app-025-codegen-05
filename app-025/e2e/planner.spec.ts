@@ -167,6 +167,40 @@ test.describe('水族造景规划器 E2E', () => {
     expect(count).toBeLessThan(26);
   });
 
+  test('换缸迁移：新旧平面图对比、越界素材收回、取消可整份退回', async ({ page }) => {
+    await openPlan(page);
+    // 60×45 默认缸：加入石头（默认 15cm）并摆到缸角附近
+    await page.getByTestId('add-hardscape-h-rock-seiryu').click();
+    await page.getByTestId('add-plant-p-ludwigia').click();
+
+    // 打开迁移弹窗
+    await page.getByTestId('open-migrate').click();
+    await expect(page.getByTestId('migrate-dialog')).toBeVisible();
+    // 新旧两张平面图同时显示
+    await expect(page.getByTestId('migrate-preview-old')).toBeVisible();
+    await expect(page.getByTestId('migrate-preview-new')).toBeVisible();
+
+    // 取消场景：先改成 120×45 细长缸再取消，缸尺寸应保持 60
+    await page.getByTestId('migrate-l').fill('120');
+    await page.getByTestId('migrate-cancel').click();
+    await expect(page.getByTestId('migrate-dialog')).toHaveCount(0);
+    await expect(page.getByTestId('tank-l')).toHaveValue('60');
+
+    // 重新打开并确认迁移
+    await page.getByTestId('open-migrate').click();
+    await page.getByTestId('migrate-l').fill('120');
+    // 长宽比差异提示出现
+    await expect(page.getByTestId('migrate-ratios')).toContainText('长宽比差异较大');
+    // 切到面积等比：k = √2
+    await page.getByTestId('migrate-mode-area').click();
+    await page.getByTestId('migrate-confirm').click();
+    await expect(page.getByTestId('migrate-dialog')).toHaveCount(0);
+    await expect(page.getByTestId('tank-l')).toHaveValue('120');
+    await expect(page.getByTestId('tank-w')).toHaveValue('45');
+    // 素材仍在画布上（按 √2 换算后的新位置）
+    await expect(page.locator('[data-testid^="item-i"]')).toHaveCount(2);
+  });
+
   test('healthz 由 nginx 提供（Docker 场景断言，preview 下跳过）', async ({ page, baseURL }) => {
     test.skip(!baseURL!.includes(':8105'), '仅在 Docker 容器场景运行');
     const res = await page.request.get('/healthz');
