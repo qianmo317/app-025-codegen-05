@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import type { Plan, Item } from '../core/types';
 import Canvas, { occlusionWarnings } from '../components/Canvas';
+import MigrateDialog from '../components/MigrateDialog';
 import { updatePlan } from '../state/plans';
 import { PLANTS, HARDSCAPES, SUBSTRATES } from '../data/db';
 import { Link } from '../router';
@@ -14,6 +15,7 @@ import {
 
 export default function Editor({ plan }: { plan: Plan }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [migrateOpen, setMigrateOpen] = useState(false);
   const selected = plan.items.find((i) => i.id === selectedId) ?? null;
 
   const vol = useMemo(() => {
@@ -172,6 +174,14 @@ export default function Editor({ plan }: { plan: Plan }) {
               />
               开放缸
             </label>
+            <button
+              className="btn span2"
+              data-testid="open-migrate"
+              title="换更大/更小的缸时，把当前布局按新缸尺寸整体换算迁移"
+              onClick={() => setMigrateOpen(true)}
+            >
+              换缸迁移布局…
+            </button>
           </div>
 
           <h3>底砂</h3>
@@ -254,6 +264,8 @@ export default function Editor({ plan }: { plan: Plan }) {
           )}
         </aside>
       </div>
+
+      {migrateOpen && <MigrateDialog plan={plan} onClose={() => setMigrateOpen(false)} />}
     </div>
   );
 }

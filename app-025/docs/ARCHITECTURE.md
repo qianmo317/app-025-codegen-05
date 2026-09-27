@@ -9,14 +9,15 @@
 │  页面层 pages/（PlanList · Editor · Water · Stocking · Bom · Library）
 │  只做：展示计算结果 + 收集用户动作；不写业务公式
 ├─────────────────────────────────────────────────────────────┤
-│  组件层 components/Canvas.tsx
+│  组件层 components/（Canvas.tsx · PlanPreview.tsx · MigrateDialog.tsx）
 │  SVG 画布：平面/侧视双视图、网格、辅助线、Pointer 拖拽、遮挡检查
+│  换缸迁移：静态平面图新旧对比预览 + 迁移对话框（确认才写入）
 ├─────────────────────────────────────────────────────────────┤
 │  路由层 router.tsx（内置 hash 路由，零依赖）
 │  #/ /plan/:id[/water|/stocking|/bom] /library
 ├─────────────────────────────────────────────────────────────┤
 │  核心计算层 core/（纯函数，"后端"逻辑，全部可单测）
-│  volume.ts · water.ts · equipment.ts · compatibility.ts · bom.ts · types.ts
+│  volume.ts · water.ts · equipment.ts · compatibility.ts · resize.ts · bom.ts · types.ts
 ├─────────────────────────────────────────────────────────────┤
 │  状态层 state/plans.ts（集中式 store，观察者模式）
 │  方案 CRUD + localStorage 持久化（键 aquaplans.v1）
@@ -88,6 +89,7 @@ App.tsx: useSyncExternalStore(subscribePlans, getPlans) ──▶ 触发重渲�
 | water.ts | `weeklyWaterChangePct` `roMixForGh` `saltForGh` `co2FromPhKh` `targetPhForCo2` `co2BubblesPerSec` `phKhCo2Table` `co2Lookup` | RO 兑水与矿物盐互斥输出；CO₂ ≈ 3×KH×10^(7−pH)；泡/秒估算强制 `estimated` 标注 |
 | equipment.ts | `classifyLightByLumen` `recommendLumens` `recommendWatts` `checkLight` `filterFlowLph` `heaterWatts` `suggestGlassMm` `equipmentSummary` | 光照三档判定 + 水草需求交叉校验；过滤 5~8 倍；加热 W = L×ΔT×0.12 |
 | compatibility.ts | `rangesOverlap` `checkPair` `checkSchooling` `checkTankSize` `checkDensity` `checkStocking` | 逐对 5 条规则 + 附加规则，输出 `StockingIssue[]`（severity/conflict·warning·info + code + message） |
+| resize.ts | `migrateFactor` `migrateLayout` `aspectRatioDiffers` | 换缸布局迁移：按长度/按宽度/按面积三种统一比例 k 换算位置与尺寸；越界素材先压缩再收回边界，改动逐件记录（from/to/reasons）；层次/旋转/排水系数不动 |
 | bom.ts | `buildBom` | 汇总底砂/水草/硬景观/生物/设备行 + 养护参数卡 |
 
 可配参数集中以常量或数据表存在（`GH_SALTS`、`LIGHT_LUMEN_PER_M2`、`WL_RANGE`、底砂密度表、硬景观排水系数），便于调参与测试边界。
@@ -119,3 +121,4 @@ App.tsx: useSyncExternalStore(subscribePlans, getPlans) ──▶ 触发重渲�
 | 有效水量强制扣除底砂与素材 | 商家/新手按毛水量配药施肥剂量偏高的真实痛点，验收明确要求专门用例 |
 | 估算类输出统一 `Estimate` 类型 | 水族经验值差异大，必须让用户知道哪些是精确公式、哪些需要实测校验（如 CO₂ 用监测液） |
 | 素材画布 SVG 而非 Canvas 2D | 素材数量级小（几十个节点），SVG 可直接绑定 DOM 事件（拖拽/选中），无需手写命中检测，且导出平面图可复用同一坐标模型 |
+| 换缸迁移在对话框局部 state 预演，确认才 `updatePlan` | 「取消整份退回」由不写入天然保证（零副作用）；预览与最终写入共用同一纯函数 `migrateLayout`，所见即所得 |

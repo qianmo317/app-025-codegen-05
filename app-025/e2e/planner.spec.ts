@@ -136,6 +136,43 @@ test.describe('水族造景规划器 E2E', () => {
     expect(download.suggestedFilename()).toContain('平面图.svg');
   });
 
+  test('换缸迁移：新旧平面图对比预览，确认才写入、取消整份退回', async ({ page }) => {
+    await openPlan(page);
+    // 摆素材：青龙石 + 红宫廷
+    await page.getByTestId('add-hardscape-h-rock-seiryu').click();
+    await page.getByTestId('add-plant-p-ludwigia').click();
+    await expect(page.locator('[data-testid^="item-i"]')).toHaveCount(2);
+
+    // 打开迁移对话框：新旧两张平面图同时显示
+    await page.getByTestId('open-migrate').click();
+    await expect(page.getByTestId('migrate-dialog')).toBeVisible();
+    await expect(page.getByTestId('migrate-old-view')).toBeVisible();
+    await expect(page.getByTestId('migrate-new-view')).toBeVisible();
+
+    // 换成 90×30 细长缸，长宽比差异大 → 出现提示；选面积等比
+    await page.getByTestId('migrate-l').fill('90');
+    await page.getByTestId('migrate-w').fill('30');
+    await page.getByTestId('migrate-mode-area').check();
+    await expect(page.getByTestId('migrate-aspect-hint')).toBeVisible();
+
+    // 取消：整份退回，缸体与布局不变
+    await page.getByTestId('migrate-cancel-bottom').click();
+    await expect(page.getByTestId('migrate-dialog')).toHaveCount(0);
+    await expect(page.getByTestId('tank-l')).toHaveValue('60');
+    await expect(page.getByTestId('tank-w')).toHaveValue('45');
+
+    // 再次打开并确认：写入新缸尺寸与迁移后的布局，素材保留
+    await page.getByTestId('open-migrate').click();
+    await page.getByTestId('migrate-l').fill('90');
+    await page.getByTestId('migrate-w').fill('30');
+    await page.getByTestId('migrate-mode-area').check();
+    await page.getByTestId('migrate-confirm').click();
+    await expect(page.getByTestId('migrate-dialog')).toHaveCount(0);
+    await expect(page.getByTestId('tank-l')).toHaveValue('90');
+    await expect(page.getByTestId('tank-w')).toHaveValue('30');
+    await expect(page.locator('[data-testid^="item-i"]')).toHaveCount(2);
+  });
+
   test('方案列表 CRUD 与刷新持久化', async ({ page }) => {
     await page.goto('/');
     await page.getByTestId('new-plan-name').fill('持久化缸');
